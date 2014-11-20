@@ -334,6 +334,9 @@ string dxf(string dxffile, int units, real xorigin, real yorigin,
   real   ya[];
   real   plclosed;
   real   bulgevalue[];          /* plclosed and bulgevalue array helps in dealing with...   */
+  real	c;
+  int roundcounter = 0;
+  int polylinecount = 0;
 
   int arccounter = 0;
   int linecounter = 0;
@@ -738,7 +741,8 @@ string dxf(string dxffile, int units, real xorigin, real yorigin,
                     "Wire (%0.2f %0.2f) %+0.2f (%0.2f %0.2f);\n",
                     mx(xa[p]+xorg),
                     my(ya[p]+yorg),
-                    (atan(bulgevalue[p])*180/PI*4),
+					
+                    //(atan(bulgevalue[p])*(180/PI)*4),
                     mx(xa[0]+xorg),
                     my(ya[0]+yorg));
             out += temp;
@@ -792,12 +796,14 @@ string dxf(string dxffile, int units, real xorigin, real yorigin,
 	  
 	  
     case state_LWPOLYLINE:/* absorbing LWPOLYLINE 07/09/2012                          */
+	
+	  if (strcomp2(s[m], " 90", "90")  != -1) {
+			polylinecount = strtod(s[m+1]);
+		}
       if (strcomp2(s[m], " 70", "70") != -1) {                        /* Checks for closed polylines and imports them.            */
         plclosed = strtod(s[m+1]);
       }
-      if (strcomp2(s[m], " 42", "42") != -1) {
-        bulgevalue[i] = strtod(s[m+1]);                             /* Store bulge value for node                               */
-      }
+
       if (strcomp2(s[m], " 10", "10") != -1) {
         xa[i] = S_factor*strtod(s[m+1]);
       }
@@ -808,68 +814,123 @@ string dxf(string dxffile, int units, real xorigin, real yorigin,
         /* ... the state will not be exited before points are ...   */
         /* ... processed. See the if statement below.               */
         ya[i] = S_factor*strtod(s[m+1]);
-        bulgevalue[i] = 0;
+        //bulgevalue[i] = 0;
         i++;          /* This avoids a misalignment of the bulge array should...  */
         /* ...one or more polylines not have bulges.                */
       }
+	 if (strcomp2(s[m], " 42", "42") != -1) {
+        bulgevalue[i-1] = strtod(s[m+1]);                             /* Store bulge value for node                               */
+      }
+	  
       if (strcomp2(s[m], "  0", "0") != -1 & LWPOLY_FLAG == 0) {
-        int _polygon_mode = (polygon_mode && i>2 ? 1 : 0);
-        if (_polygon_mode)
-          out += "Polygon";
-        for (p=0; p<i-(_polygon_mode?0:1); p++) {                       /* n points give n-1 lines that's why there's an i-1 in...  */
-          if (_polygon_mode) {
-            sprintf(temp,
-                    " (%0.2f %0.2f)",
-                    mx(xa[p]+xorg),
-                    my(ya[p]+yorg));
-            out += temp;
-          }
-          else {
+        //int _polygon_mode = (polygon_mode && i>2 ? 1 : 0);
+        for (p=0; p<i-1; p++) {                       /* n points give n-1 lines that's why there's an i-1 in...  */
             if (bulgevalue[p] != 0.) {                               /* ...the conditional.                                      */
-              sprintf(temp,
-                      "Wire (%0.2f %0.2f) %+0.2f (%0.2f %0.2f);\n",
+			c = ((sqrt(((xa[p]-xa[p+1])*(xa[p]-xa[p+1])) + ((ya[p]-ya[p+1])*(ya[p]-ya[p+1]))))/2);
+			if (polygon_mode && !roundcounter){
+			          sprintf(temp,
+                      "Polygon (%0.2f %0.2f) @%+0.2f (%0.2f %0.2f)\n",
                       mx(xa[p]+xorg),
                       my(ya[p]+yorg),
-                      (atan(bulgevalue[p])*180/PI*4),
+                      (c/(sin(2* atan(bulgevalue[p])))),
                       mx(xa[p+1]+xorg),
                       my(ya[p+1]+yorg));
               out += temp;
+			  }
+			  if (polygon_mode && roundcounter){
+			          sprintf(temp,
+                      " @%+0.2f (%0.2f %0.2f)\n",
+                      (c/(sin(2* atan(bulgevalue[p])))),
+                      mx(xa[p+1]+xorg),
+                      my(ya[p+1]+yorg));
+              out += temp;
+			  }
+			  if (!polygon_mode){
+              sprintf(temp,
+                      "Wire (%0.2f %0.2f) @%+0.2f (%0.2f %0.2f);\n",
+                      mx(xa[p]+xorg),
+                      my(ya[p]+yorg),
+                      (c/(sin(2* atan(bulgevalue[p])))),
+                      mx(xa[p+1]+xorg),
+                      my(ya[p+1]+yorg));
+              out += temp;
+			 }
+			
             }
             else {
+			if (polygon_mode && !roundcounter){
               sprintf(temp,
+                      "Polygon (%0.2f %0.2f) (%0.2f %0.2f)\n",
+                      mx(xa[p]+xorg),
+                      my(ya[p]+yorg),
+                      mx(xa[p+1]+xorg),
+                      my(ya[p+1]+yorg));
+              out += temp;
+			  }
+			if (polygon_mode && roundcounter){
+              sprintf(temp,
+                      "(%0.2f %0.2f)\n",
+                      mx(xa[p+1]+xorg),
+                      my(ya[p+1]+yorg));
+              out += temp;
+			  }
+			 if(!polygon_mode){
+			               sprintf(temp,
                       "Wire (%0.2f %0.2f) (%0.2f %0.2f);\n",
                       mx(xa[p]+xorg),
                       my(ya[p]+yorg),
                       mx(xa[p+1]+xorg),
                       my(ya[p+1]+yorg));
               out += temp;
-            }
+			  }
           }
+		 roundcounter=1;
         }
-        if(plclosed && !_polygon_mode) {
+        if(plclosed) {
           if(bulgevalue[p] != 0.) {
+		     c = ((sqrt(((xa[p]-xa[0])*(xa[p]-xa[0])) + ((ya[p]-ya[0])*(ya[p]-ya[0]))))/2);
+			 if (polygon_mode){
+					sprintf(temp,
+                    " @%+0.2f (%0.2f %0.2f)\n",
+					(c/(sin(2* atan(bulgevalue[p])))),
+                    mx(xa[0]+xorg),
+                    my(ya[0]+yorg));
+            out += temp;
+			}
+			else{
             sprintf(temp,
-                    "Wire (%0.2f %0.2f) %+0.2f (%0.2f %0.2f);\n",
+                    "Wire (%0.2f %0.2f) @%+0.2f (%0.2f %0.2f);\n",
                     mx(xa[p]+xorg),
                     my(ya[p]+yorg),
-                    (atan(bulgevalue[p])*180/PI*4),
+					(c/(sin(2* atan(bulgevalue[p])))),
+                    mx(xa[0]+xorg),
+                    my(ya[0]+yorg));
+            out += temp;
+			}
+          }
+          else {
+		  if (polygon_mode){
+					sprintf(temp,
+                    "(%0.2f %0.2f)\n",
                     mx(xa[0]+xorg),
                     my(ya[0]+yorg));
             out += temp;
           }
-          else {
-            sprintf(temp,
+		  else{
+		            sprintf(temp,
                     "Wire (%0.2f %0.2f) (%0.2f %0.2f);\n",
                     mx(xa[p]+xorg),
                     my(ya[p]+yorg),
                     mx(xa[0]+xorg),
                     my(ya[0]+yorg));
             out += temp;
-          }
+		  }
+		  }
         }
-        if (_polygon_mode) {
+		
+        if (polygon_mode) 
           out += ";\n";
-        }
+        
         state = state_SEARCH;
         LWPOLY_FLAG = 1;
       }
