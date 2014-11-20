@@ -796,7 +796,7 @@ string dxf(string dxffile, int units, real xorigin, real yorigin,
 	  
 	  
     case state_LWPOLYLINE:/* absorbing LWPOLYLINE 07/09/2012                          */
-	
+	roundcounter=0;
 	  if (strcomp2(s[m], " 90", "90")  != -1) {
 			polylinecount = strtod(s[m+1]);
 		}
